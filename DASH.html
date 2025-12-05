@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Dash</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #1a1a2e;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        
+        #scoreBoard {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 30px;
+            font-size: 24px;
+        }
+        
+        #score {
+            color: white;
+        }
+        
+        #bestScore {
+            color: #ffd700;
+        }
+        
+        #gameCanvas {
+            border: 4px solid #00bcd4;
+            border-radius: 10px;
+            box-shadow: 0 0 30px rgba(0, 188, 212, 0.5);
+            cursor: pointer;
+        }
+        
+        #menu, #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 40px;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        #menu.show, #gameOver.show {
+            display: block;
+        }
+        
+        h1 {
+            font-size: 60px;
+            color: #00bcd4;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .subtitle {
+            font-size: 24px;
+            margin-bottom: 30px;
+        }
+        
+        button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #00bcd4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #0097a7;
+        }
+        
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+            color: #aaa;
+        }
+        
+        #controls p {
+            margin: 5px 0;
+        }
+        
+        .canvasContainer {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreBoard">
+        <div id="score">Score: 0</div>
+        <div id="bestScore">Best: 0</div>
+    </div>
+    
+    <div class="canvasContainer">
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+        
+        <div id="menu" class="show">
+            <h1>GEOMETRY DASH</h1>
+            <p class="subtitle">Click or Press SPACE to Start</p>
+        </div>
+        
+        <div id="gameOver">
+            <h1 style="color: #ff0055;">GAME OVER</h1>
+            <p class="subtitle" id="finalScore">Score: 0</p>
+            <p class="subtitle" id="finalBest">Best: 0</p>
+            <button id="restartBtn">🔄 Try Again</button>
+        </div>
+    </div>
+    
+    <div id="controls">
+        <p>🎮 Controls: SPACE or UP ARROW or CLICK to Jump</p>
+        <p>🟦 Blue platforms are safe to land on!</p>
+        <p>🟥 Avoid red obstacles and survive as long as you can!</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const menu = document.getElementById('menu');
+        const gameOver = document.getElementById('gameOver');
+        const scoreEl = document.getElementById('score');
+        const bestScoreEl = document.getElementById('bestScore');
+        const finalScoreEl = document.getElementById('finalScore');
+        const finalBestEl = document.getElementById('finalBest');
+        const restartBtn = document.getElementById('restartBtn');
+        
+        let gameState = 'menu'; // menu, playing, dead
+        let score = 0;
+        let bestScore = 0;
+        
+        const colors = {
+            bg: '#1a1a2e',
+            player: '#00ff88',
+            obstacle: '#ff0055',
+            ground: '#0f3460',
+            grid: '#16213e',
+            platform: '#4a90e2'
+        };
+        
+        const game = {
+            player: { x: 100, y: 300, size: 30, velocityY: 0, rotation: 0 },
+            obstacles: [],
+            groundY: 400,
+            gravity: 0.8,
+            jumpForce: -15,
+            speed: 5,
+            obstacleTimer: 0,
+            obstacleInterval: 80,
+            distance: 0,
+            isJumping: false
+        };
+        
+        function resetGame() {
+            game.player = { x: 100, y: 300, size: 30, velocityY: 0, rotation: 0 };
+            game.obstacles = [];
+            game.obstacleTimer = 0;
+            game.distance = 0;
+            game.isJumping = false;
+            score = 0;
+            scoreEl.textContent = 'Score: 0';
+        }
+        
+        function jump() {
+            if (gameState === 'playing' && !game.isJumping) {
+                game.player.velocityY = game.jumpForce;
+                game.isJumping = true;
+            }
+        }
+        
+        function spawnObstacle() {
+            const types = ['block', 'spike', 'tall', 'platform', 'platform', 'platform'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            let height, width, y;
+            switch(type) {
+                case 'spike':
+                    height = 40;
+                    width = 40;
+                    y = game.groundY - height;
+                    break;
+                case 'tall':
+                    height = 80;
+                    width = 30;
+                    y = game.groundY - height;
+                    break;
+                case 'platform':
+                    height = 20;
+                    width = 80;
+                    y = game.groundY - 120;
+                    break;
+                default:
+                    height = 30;
+                    width = 30;
+                    y = game.groundY - height;
+            }
+            
+            game.obstacles.push({ x: canvas.width, y, width, height, type });
+        }
+        
+        function checkCollision(player, obstacle) {
+            if (obstacle.type === 'platform') return false;
+            
+            return player.x < obstacle.x + obstacle.width &&
+                   player.x + player.size > obstacle.x &&
+                   player.y < obstacle.y + obstacle.height &&
+                   player.y + player.size > obstacle.y;
+        }
+        
+        function checkPlatformLanding(player, obstacle) {
+            if (obstacle.type !== 'platform') return false;
+            
+            return player.velocityY > 0 &&
+                   player.x + player.size > obstacle.x &&
+                   player.x < obstacle.x + obstacle.width &&
+                   player.y + player.size >= obstacle.y &&
+                   player.y + player.size <= obstacle.y + 10;
+        }
+        
+        function drawGrid() {
+            ctx.strokeStyle = colors.grid;
+            ctx.lineWidth = 1;
+            
+            for (let i = 0; i < canvas.width; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(i - (game.distance % 40), 0);
+                ctx.lineTo(i - (game.distance % 40), canvas.height);
+                ctx.stroke();
+            }
+            
+            for (let i = 0; i < canvas.height; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(0, i);
+                ctx.lineTo(canvas.width, i);
+                ctx.stroke();
+            }
+        }
+        
+        function gameLoop() {
+            ctx.fillStyle = colors.bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            drawGrid();
+            
+            // Draw ground
+            ctx.fillStyle = colors.ground;
+            ctx.fillRect(0, game.groundY, canvas.width, canvas.height - game.groundY);
+            
+            if (gameState === 'playing') {
+                // Update player
+                game.player.velocityY += game.gravity;
+                game.player.y += game.player.velocityY;
+                
+                // Check platform landing
+                let onPlatform = false;
+                for (let obs of game.obstacles) {
+                    if (checkPlatformLanding(game.player, obs)) {
+                        game.player.y = obs.y - game.player.size;
+                        game.player.velocityY = 0;
+                        game.isJumping = false;
+                        game.player.rotation = 0;
+                        onPlatform = true;
+                        break;
+                    }
+                }
+                
+                // Ground collision
+                if (!onPlatform && game.player.y + game.player.size >= game.groundY) {
+                    game.player.y = game.groundY - game.player.size;
+                    game.player.velocityY = 0;
+                    game.isJumping = false;
+                    game.player.rotation = 0;
+                } else if (!onPlatform) {
+                    game.player.rotation += 5;
+                }
+                
+                // Spawn obstacles
+                game.obstacleTimer++;
+                if (game.obstacleTimer > game.obstacleInterval) {
+                    spawnObstacle();
+                    game.obstacleTimer = 0;
+                    game.obstacleInterval = 60 + Math.random() * 40;
+                }
+                
+                // Update obstacles
+                game.obstacles = game.obstacles.filter(obs => {
+                    obs.x -= game.speed;
+                    return obs.x + obs.width > 0;
+                });
+                
+                // Check collisions
+                for (let obs of game.obstacles) {
+                    if (checkCollision(game.player, obs)) {
+                        gameState = 'dead';
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestScoreEl.textContent = 'Best: ' + bestScore;
+                        }
+                        finalScoreEl.textContent = 'Score: ' + score;
+                        finalBestEl.textContent = 'Best: ' + bestScore;
+                        gameOver.classList.add('show');
+                    }
+                }
+                
+                game.distance += game.speed;
+                score = Math.floor(game.distance / 10);
+                scoreEl.textContent = 'Score: ' + score;
+            }
+            
+            // Draw obstacles
+            game.obstacles.forEach(obs => {
+                if (obs.type === 'spike') {
+                    ctx.fillStyle = colors.obstacle;
+                    ctx.beginPath();
+                    ctx.moveTo(obs.x + obs.width / 2, obs.y);
+                    ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+                    ctx.lineTo(obs.x, obs.y + obs.height);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = colors.obstacle;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                } else if (obs.type === 'platform') {
+                    ctx.fillStyle = colors.platform;
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = colors.platform;
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = colors.obstacle;
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = colors.obstacle;
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.shadowBlur = 0;
+                }
+            });
+            
+            // Draw player
+            ctx.save();
+            ctx.translate(game.player.x + game.player.size / 2, game.player.y + game.player.size / 2);
+            ctx.rotate((game.player.rotation * Math.PI) / 180);
+            ctx.fillStyle = colors.player;
+            ctx.fillRect(-game.player.size / 2, -game.player.size / 2, game.player.size, game.player.size);
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = colors.player;
+            ctx.fillRect(-game.player.size / 2, -game.player.size / 2, game.player.size, game.player.size);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function startGame() {
+            if (gameState === 'menu' || gameState === 'dead') {
+                resetGame();
+                gameState = 'playing';
+                menu.classList.remove('show');
+                gameOver.classList.remove('show');
+            } else if (gameState === 'playing') {
+                jump();
+            }
+        }
+        
+        // Event listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                startGame();
+            }
+        });
+        
+        canvas.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+        
+        // Start game loop
+        gameLoop();
+    </script>
+</body>
+</html>
